@@ -1,5 +1,7 @@
 # fast-topo-router
 
+English | [中文](README.zh-CN.md)
+
 The deterministic, type-safe context routing gateway for terminal AI agents (Claude Code, Omp, Codex).
 
 Two-phase pre-ingestion pipeline — a gatekeeper that runs **before** the frontier LLM sees your workspace:
