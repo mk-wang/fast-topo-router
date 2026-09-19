@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`fast-topo-router` — a deterministic, type-safe context routing gateway for terminal AI agents (Claude Code, Omp, Codex). Two-phase pre-ingestion pipeline: topology-driven pruning of workspace entropy, then strongly-typed tactical routing via a fast decision model. Currently a scaffold: abstract framework only, no concrete compactor/router implementations yet.
+`fast-topo-router` — a deterministic, type-safe context routing gateway for terminal AI agents (Claude Code, Omp, Codex). Two-phase pre-ingestion pipeline: topology-driven pruning of workspace entropy, then strongly-typed tactical routing via a fast decision model. Ships abstract engine contracts plus concrete implementations: `CodeCompactor` (Tree-sitter), `JevRouter` / `OllamaRouter`, and a zero-dep MCP stdio server.
 
 Design baseline lives in `documents/blueprint.md` (canonical). All design docs go in `documents/`, not `docs/`.
 
@@ -25,6 +25,7 @@ Both engines are abstract classes: consumers bring their own extractor (e.g. Tre
 - `src/core/` — abstract engine contracts (frozen boundary; concrete implementations live outside)
 - `src/compactors/` — `CodeCompactor`: Tree-sitter TS/TSX skeleton extractor
 - `src/routers/` — `OllamaRouter` (local Ollama structured output, zero-dep) and `JevRouter` (TypeSafe Jev API, Bearer via `JEV_KEY` env; boolean→noul, string+enum→choice)
+- `src/mcp/` — zero-dep MCP stdio server (`topo_compact`, `topo_route`); built to `dist/mcp/server.js`, exposed as the `fast-topo-router-mcp` bin
 - `documents/` — design docs, canonical source of truth for intent
 
 ## Development Commands
@@ -43,6 +44,8 @@ bun run build        # emit dist/ with .d.ts
 - Type imports use `import type`; public API is re-exported from `src/index.ts` only.
 - Router outputs are scalar-only by design — never widen `RouterOutputShape` to allow objects/text blobs.
 - Sibling project `fast-jev-compaction` is the convention reference: same ESM/NodeNext/strict setup, vitest for tests, tsx for examples.
+- MCP aids navigation and model routing without replacing required engineering checks. Both tools are normally available; operator `TOPO_ENABLE_ROUTING=0` disables routing at listing and execution. Valid model decisions do not require a compulsory second-model review.
+- Neither Jev nor the frontier model can waive user/repository-required checks. Technical failure means unavailable advice with retained context when available, never fabricated `None`/`false`. No automatic retry loops or backend switches.
 
 ## Important Files
 
@@ -60,3 +63,5 @@ bun run build        # emit dist/ with .d.ts
 - vitest, tests in top-level `tests/` with fixtures in `tests/fixtures/` (sibling `fast-jev-compaction` convention). Tests are NOT in tsconfig `include` — `bun run typecheck` covers `src/` only, matching the sibling's split.
 - Working rule: non-trivial logic (branch, loop, parser) gets one minimal runnable check; pure plumbing (like `processIngress` wiring) needs only `bun run typecheck`.
 - Gate before finishing work: `bun run typecheck && bun run test && bun run build` — dist must not contain test files.
+- Fault injection stays offline: injected transports/routers and local subprocesses only. Tests of advisory output or fallback messages do not prove that a real agent obeys them; report that evidence boundary explicitly.
+- Output budgets include all serialized XML, including omission metadata and closing tags; count UTF-8 bytes rather than JavaScript string length.

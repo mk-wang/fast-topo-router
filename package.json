@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./mcp/server": {
+      "types": "./dist/mcp/server.d.ts",
+      "import": "./dist/mcp/server.js"
     }
   },
   "files": [
@@ -37,5 +41,11 @@
     "type": "git",
     "url": "https://github.com/mk-wang/fast-topo-router.git"
   },
-  "homepage": "https://github.com/mk-wang/fast-topo-router"
+  "homepage": "https://github.com/mk-wang/fast-topo-router",
+  "bin": {
+    "fast-topo-router-mcp": "./dist/mcp/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
 }

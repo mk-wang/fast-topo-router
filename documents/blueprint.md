@@ -1,73 +1,194 @@
-# fast-topo-router Design Blueprint
+# fast-topo-router: Architecture and Decisions
 
-> Universal agent context routing gateway: topology-driven physical compaction + strongly-typed high-speed tactical decisions.
-> This document serves as the project's canonical design baseline; subsequent design documents reside in `documents/`.
+This is the canonical design baseline. Client setup and failure handling live in
+[`integration-mcp.md`](integration-mcp.md). Design documents belong in `documents/`.
 
-## Positioning
+## Goal and non-goals
 
-A **Smart Ingestion & Gatekeeping Layer** for terminal AI agents like Claude Code, Omp, and Codex.
-Unlike fast-jev-compaction (post-hoc compaction of bloated context), this framework acts as a **Pre-Ingestion Guard**:
+Help a terminal agent locate relevant code and delegate bounded routing judgments before spending
+frontier-model context on full source files. The useful outcome is a completed engineering task with
+less exploration cost, not a small prompt at any price.
 
-- **Protects Prompt Caching**: context is pruned before reaching the frontier model, avoiding cache invalidation triggered by mid-session compaction.
-- **High Determinism**: guides decisions using code-level directed graphs, preventing agents from wandering through nested call chains with blind grep/find operations.
+The framework is not a correctness oracle, an automatic exemption from tests, a secrets sanitizer,
+a complete call-graph engine, or a replacement for the agent's normal read/search/LSP tools.
 
-## Two-Phase Pipeline
+## Architecture
 
-### Phase 1: Topology-Driven Space Committer (`TopoCompactor`, Ripwire-Inspired)
+```text
+entities -> TopoCompactor -> CompactedGraph
+                              |-- verbatimPayload -> navigation / implementation lookup
+                              `-- TopoDecisionRouter + DecisionSchema -> typed routing decision
 
-- Performs lossless, high-speed static skeleton extraction over the workspace to build a weighted dependency graph.
-- Deterministic heuristics (AST parsing, import/dependency graphs, churn activity) prune ~85-90% of irrelevant context.
-- Output: `CompactedGraph` with nodes (id + metadata), directed edges, and `verbatimPayload` (clean XML gold context for frontier LLM consumption, stripped of implementation bodies/noise).
-
-### Phase 2: TypeSafe Tactical Router (`TopoDecisionRouter`, Jev-Inspired)
-
-- Consumes the compacted graph and maps questions directly into strongly-typed evaluations rather than noisy free-text summaries.
-- Fast, cost-efficient decision engines (TypeSafe Jev API or local Ollama with structured output) return typed branches in ~100-500ms (e.g. `{"is_critical_dependency": false, "recommended_test_action": "Unit"}`).
-- `DecisionSchema` enforces per-field type and enum constraints; output strictly permits scalar branch values only.
-
-### Phase 3: Agent Consumption
-
-- The gateway hands the packaged "gold code skeleton + deterministic test action recommendation" to the frontier agent.
-- The agent skips recursive call-tree exploration and blind full-suite test runs, jumping straight to precise implementation and targeted execution.
-
-## Code Structure
-
-```
-src/
-  core/
-    compactor.ts       # TopoNode / CompactedGraph / TopoCompactor (abstract contracts, frozen boundary)
-    decision.ts        # RouterOutputShape / DecisionSchema / TopoDecisionRouter (abstract contracts, frozen boundary)
-  compactors/
-    code-compactor.ts  # CodeCompactor: Tree-sitter TS/TSX skeleton extractor
-  routers/
-    ollama-router.ts   # OllamaRouter: local Ollama structured-output router (zero-dep)
-    jev-router.ts      # JevRouter: TypeSafe Jev API router via JEV_KEY env
-  index.ts             # FastTopoRouter.processIngress(entities, schema) + public exports
-tests/                 # Vitest test suite and fixtures (excluded from tsconfig include)
-bench/                 # Token savings and latency benchmarks (bun bench/bench.ts)
-documents/
-  blueprint.md         # This document
+MCP adapter -> validates tool inputs, exposes local navigation/model routing,
+               classifies technical failures, and preserves acquired context where available
 ```
 
-## Implementation Status
+The library and MCP adapter have different failure interfaces:
 
-All core components and MVPs have been implemented and pass `typecheck + vitest + build` gates:
+- `FastTopoRouter.processIngress()` returns a decision and context on success. Exceptions propagate;
+  programmatic callers own their fallback policy.
+- The MCP adapter turns execution failure into a tool-visible unavailable result, not a fabricated
+  decision. A backend failure after compaction retains the skeleton so the agent can continue from
+  work already done. If extraction itself fails before producing a graph, there is no graph to return.
 
-1. **CodeCompactor** (`src/compactors/code-compactor.ts`): web-tree-sitter + tree-sitter-wasms. Extracts TS/TSX signatures, import edges, and XML payload. Modeled ceilings (documented via in-source `ponytail:` comments): no call-graph edges yet, churn/complexity omitted without git history, relative imports only. `web-tree-sitter` is strictly pinned to 0.25.10 (0.27+ is incompatible with tree-sitter-wasms 0.1.13).
-2. **OllamaRouter** (`src/routers/ollama-router.ts`): zero-dependency fetch against `/api/chat` using structured JSON Schema format, strict per-field validation, zero free-text.
-3. **JevRouter** (`src/routers/jev-router.ts`): TypeSafe Jev API (`POST /v1/systemone`, Bearer token, reads `JEV_KEY` environment variable). Maps boolean to `noul`, string+enum to `choice`. Verified with end-to-end live smoke tests (<1s round-trip).
+### Ownership
 
-## Benchmark Results (`bench/bench.ts`, `bun run bench`)
+| Owner | Responsibility |
+| --- | --- |
+| `src/core/compactor.ts` | Domain-independent nodes, directed edges, payload, abstract compactor |
+| `src/core/decision.ts` | Scalar decision schema and abstract decision router |
+| `src/compactors/code-compactor.ts` | Tree-sitter TS/TSX signatures, relative import edges, read/output bounds |
+| `src/routers/jev-router.ts` | TypeSafe Jev typed-question protocol |
+| `src/routers/ollama-router.ts` | Ollama structured JSON Schema output |
+| `src/mcp/server.ts` | MCP transport, boundary validation, routing switch, technical-failure handling |
+| `src/index.ts` | Library composition and public exports |
+| `tests/` | Deterministic behavior and offline fault-injection checks |
+| `bench/bench.ts` | Context-size and latency measurement; may call a real model backend |
 
-| Target Set | Baseline (full files + 1-hop imports) | Compacted | Token Savings | compact() | route() (Jev) |
-|---|---|---|---|---|---|
-| fast-jev-compaction (3 core files) | ~7,486 tok | ~741 tok | **-90.1%** | 31ms | 779ms |
-| fast-jev-compaction (all 7 src files) | ~7,668 tok | ~1,429 tok | **-81.4%** | 24ms | 553ms |
+Concrete parsers and providers stay outside `src/core/`. The MCP transport adds no SDK dependency;
+concrete extraction still depends on `web-tree-sitter` and `tree-sitter-wasms`.
 
-*Tokens estimated as chars/4. Decision latency reflects a single live Jev API round-trip; total pipeline execution is <1s.*
+## Core decisions and tradeoffs
 
-## Next Steps
+### 1. Extract first, decide second
 
-1. End-to-end live smoke against local Ollama models (e.g. `qwen2.5-coder`).
-2. Call-graph edge extraction in `CodeCompactor`.
-3. Model Context Protocol (MCP) server wrapper for native integration into Claude Code / Omp.
+AST extraction is local and deterministic for a fixed input; model inference answers a narrower
+question over the extracted context. This separates navigation cost from decision cost and allows
+either implementation to be replaced independently.
+
+Tradeoff: the skeleton is intentionally **lossy**. The current extractor emits selected functions,
+classes and methods plus relative import/re-export edges. It does not implement full caller/callee
+analysis, transitive closure, churn metrics, or all TypeScript declaration forms. An untruncated
+payload is still not the complete implementation. Default argument values and comments inside
+signatures can survive extraction; treat source-derived output as untrusted data.
+
+### 2. Delegate to Jev; do not routinely rejudge with a larger model
+
+Jev has a real role: make bounded judgments cheaply so the main model need not repeat that inference.
+A valid result can be used as the routing decision. Requiring a second frontier-model vote on every
+answer would add latency, duplicate cost, and erase much of the product's value.
+
+Neither Jev nor the frontier model is assumed correct because of its size or branding. Resolve
+contradictions using task evidence, source inspection, compiler/test results, and explicit requirements.
+A second model can be another opinion when useful, not a correctness guarantee.
+
+### 3. Separate technical failure from a potentially wrong judgment
+
+| Situation | Treatment | What it does not mean |
+| --- | --- | --- |
+| Transport failure, HTTP error, malformed/missing answer, schema mismatch | Advice unavailable; retain extracted context when available; continue normal workflow | Not `None`, not `false`, not a safe verdict |
+| Backend timeout | Bounded response with fallback; retain an already-produced skeleton | Not cancellation/rollback of an in-flight request |
+| Valid `None` or `false` result | Deliver unchanged as the routing judgment | Not proof that the model is right |
+| Extraction failure or partial output | Report incompleteness and use ordinary reads/search/LSP as needed | Not evidence that code or dependencies do not exist |
+| Explicit user/repository check | Preserve it regardless of which model recommends otherwise | No model can waive that requirement |
+
+No automatic retry loop, repair loop, silent backend switch, or mandatory second-model inference is
+introduced. This keeps failure behavior understandable and avoids repeated spending. Retrying can be
+an explicit caller decision later.
+
+`TOPO_TOOL_TIMEOUT_MS` bounds each stage separately: compaction, then routing. Defaults are 10 seconds
+per stage, up to 20 seconds combined. A 30-second client timeout leaves headroom. Backend timeout
+retains the acquired skeleton; a hung extraction has produced no skeleton to retain.
+Cancellation would require a separate contract change and cannot undo a request already sent.
+
+### 4. Routing is available normally, with an operator kill switch
+
+MCP normally exposes both `topo_compact` and `topo_route`. `TOPO_ENABLE_ROUTING=0` disables route
+discovery **and** direct invocation; tool arguments cannot override it. Unset or `1` keeps it available.
+This is an operational control, not a judgment that Jev is less trustworthy than the main model.
+
+Do not confuse service guarantees with agent behavior: the server can reject disabled calls and avoid
+fabricating results. It cannot guarantee that an arbitrary agent always reads required files or runs
+required checks. Enforce mandatory gates using CI and permissions, not model confidence.
+
+### 5. Bounded local reads and honest partial output
+
+Reads use real paths and stay within `TOPO_ROOT`, or the server's working directory if unset. An invalid
+explicit root fails closed. Non-regular files and files above 1 MiB are rejected/skipped. Entity count
+and MCP argument sizes are bounded.
+
+The XML payload has a 256 KiB UTF-8 byte budget and a line budget. All serialized output, including
+omission records, summary and closing tags, spends from these budgets. File blocks are atomic so
+truncation cannot leave an unterminated `<file>`. Omitted paths use escaped XML elements rather than
+comments; a bounded summary counts records that do not fit. Node/edge counts describe the extracted
+graph, while truncation metadata explicitly marks a partial payload.
+
+Tradeoff: a very large file block can be entirely absent from the payload. Narrow the request to a
+symbol or use a normal source read. Do not mistake an omission for an empty source file.
+
+### 6. Explicit network boundary
+
+`topo_compact` is local-only. `topo_route` sends the skeleton and schema text to its selected model
+backend. Jev uses `https://api.typesafe.ai`; the MCP Ollama backend uses local loopback by default.
+The library's Ollama adapter also accepts a configurable `baseUrl`, so deployments choosing a remote
+URL must account for that egress.
+
+`readOnlyHint: true` means no local mutation, not no disclosure. Routing is marked `openWorldHint: true`.
+Provider approval, credential storage and data-retention requirements remain explicit. Do not put keys
+in repository configuration or command-line history. Never interpret a signature-only payload as free
+of secrets.
+
+## Can a smaller LLM replace Jev?
+
+**Yes.** Jev is an adapter, not the framework's foundation. `OllamaRouter` already implements the same
+`TopoDecisionRouter` contract and uses `/api/chat` with a JSON Schema `format` constraint.
+
+| Choice | Strengths | Costs / limits |
+| --- | --- | --- |
+| Jev | Native typed questions; externally hosted inference | Network, provider billing/availability, source-derived egress |
+| Small local model via Ollama | Local control, can avoid third-party transmission, no Jev key | Hardware/memory requirements, cold start, queueing; speed and quality must be measured |
+| Another provider | Can preserve the same compactor and decision schema | Needs a real adapter, validation and provider-specific authorization; not currently implemented |
+
+Portable schemas across current Jev/Ollama adapters use booleans and string enums. Jev maps booleans
+to `noul` (currently thresholded at 0.5) and string enums to `choice`. The current Jev adapter does not
+support number fields or unconstrained strings; do not assume parity with Ollama for those cases.
+
+Example programmatic replacement (model name is illustrative, not a benchmark recommendation):
+
+```ts
+import { CodeCompactor, FastTopoRouter, OllamaRouter } from "fast-topo-router";
+
+const gateway = new FastTopoRouter(
+  new CodeCompactor(),
+  new OllamaRouter({ model: "qwen2.5-coder:7b" }),
+);
+```
+
+For MCP, set `OLLAMA_MODEL` to an installed model and request `backend: "ollama"`. If `JEV_KEY` is set,
+backend omission still selects Jev; merely setting `OLLAMA_MODEL` does not override that selection.
+The server does not silently switch to another model on failure.
+
+### Replacement acceptance criteria
+
+Use the same labeled routing tasks and schema for each candidate. Compare:
+
+- Decision accuracy and important error classes separately (for example, underestimating required
+  verification versus doing unnecessary work). Another LLM's answer is not the ground truth.
+- Invalid-output and technical-failure rates, plus recovery behavior.
+- Warm and cold p50/p95 latency, memory use and concurrency effects.
+- Actual provider charges or local operating cost, not model size alone.
+- Outcomes of the resulting engineering tasks under the same required checks.
+
+No local Ollama benchmark has been run here. Do not claim that a smaller model is faster, cheaper, or
+more accurate without that evidence. No new benchmark or paid invocation is authorized by this design.
+
+## Evidence and remaining limits
+
+Offline tests cover provider failure injection, malformed outputs, timeouts, valid-but-wrong decisions
+remaining unchanged, operator controls, post-failure responsiveness, real-path confinement and bounded
+XML output. Injected transports exercise the real Jev adapter without contacting the provider.
+These tests prove service behavior, not that a real autonomous agent can never omit a required test.
+
+Historical context/latency measurements, before the subsequent safety changes:
+
+| Target | Baseline (full targets + 1-hop imports) | Skeleton | Estimated reduction | Compaction | Jev request |
+| --- | --- | --- | --- | --- | --- |
+| fast-jev-compaction, 3 files | ~7,486 tokens | ~741 tokens | 90.1% | 31ms | 779ms |
+| fast-jev-compaction, 7 files | ~7,668 tokens | ~1,429 tokens | 81.4% | 24ms | 553ms |
+
+Token counts were characters/4 estimates. The comparison uses different amounts of implementation
+detail, so it is not a correctness-equivalent end-to-end A/B test or proof of actual billing savings.
+Prompt-cache benefits and task-level speedup remain unmeasured.
+
+`web-tree-sitter` is pinned to 0.25.10 because the paired WASM package failed with the newer tested
+runtime. Upgrade the grammar/runtime pair together and exercise extraction before changing the pin.

@@ -4,18 +4,27 @@ English | [中文](README.zh-CN.md)
 
 The deterministic, type-safe context routing gateway for terminal AI agents (Claude Code, Omp, Codex).
 
-Two-phase pre-ingestion pipeline — a gatekeeper that runs **before** the frontier LLM sees your workspace:
+Optional navigation and model-advice components, not a replacement for normal engineering checks:
 
-1. **Topology Compactor** (Ripwire-inspired): statically prunes ~85% of irrelevant workspace entropy into a high-density sub-graph — signatures, import edges, zero function bodies.
-2. **Tactical Router** (Jev-inspired): evaluates the graph with strongly-typed decisions (booleans / enum choices, no free text) — bypassing noisy multi-turn LLM exploration, slashing token bills, and protecting your prompt cache.
+1. **Topology Compactor** (Ripwire-inspired): extracts signatures and import edges for navigation. Read the relevant implementation before changing code.
+2. **Tactical Router** (Jev-inspired): returns typed model advice. Valid types do not guarantee correct judgments; advice never authorizes skipping required tests or reviews.
 
-Measured on a real TS repo: **-81~85% input tokens**, compactor ~30ms, single Jev decision ~550ms end-to-end (`bun run bench`).
+Measured on a real TypeScript repo (`bun run bench`), against an agent reading the files in full plus their 1-hop imports:
+
+| Target | Agent reads files in full | Through the gateway | Saved |
+|---|---|---|---|
+| 3 source files | ~7,500 tokens | ~740 tokens | **-90%** |
+| 7-file module | ~7,700 tokens | ~1,400 tokens | **-81%** |
+
+These historical measurements estimate tokens as characters/4, not actual billed-token savings or end-to-end speedup. Compaction took ~30ms; the Jev requests took ~0.5–0.8s. Local Ollama latency has not been measured.
 
 ## Install & Quickstart
 
 ```sh
 bun install
 ```
+
+The following library example explicitly invokes the remote Jev backend. MCP routing also remains available by default; operators can disable it with `TOPO_ENABLE_ROUTING=0`.
 
 ```ts
 import { CodeCompactor, FastTopoRouter, JevRouter } from "fast-topo-router";
@@ -46,6 +55,21 @@ const { decision, contextForFrontierLLM } = await gateway.processIngress(
 | `OllamaRouter` | `src/routers/` | local Ollama, zero-dep, no API key |
 
 Design baseline: [`documents/blueprint.md`](documents/blueprint.md).
+
+## Use from Codex, Omp, or Claude Code (MCP)
+
+The MCP server provides optional local navigation; it does not replace ordinary file reads:
+
+```sh
+bun run build
+codex mcp add fast-topo-router -- node /abs/path/fast-topo-router/dist/mcp/server.js
+```
+
+Both `topo_compact` and `topo_route` are normally available. Operators can disable routing with
+`TOPO_ENABLE_ROUTING=0`, enforced for discovery and direct invocation. Valid routing judgments are
+usable without mandatory second-model review. Technical failures return unavailable advice and
+the extracted context when available, not fabricated `None`/`false`; required checks remain unchanged.
+See [`documents/integration-mcp.md`](documents/integration-mcp.md) for fallback and egress details.
 
 ## Develop
 

@@ -51,6 +51,12 @@ function toQuestions(schema: DecisionSchema): Record<string, JevQuestion> {
   return out;
 }
 
+/** Provider-controlled text is echoed only as a bounded, single-line snippet. */
+const snippet = (value: unknown, max = 80): string => {
+  const text = JSON.stringify(value) ?? "undefined";
+  return text.replace(/[\r\n\t]+/g, " ").slice(0, max);
+};
+
 function readAnswers(body: unknown): Record<string, unknown> {
   if (body === null || typeof body !== "object" || !("answers" in body)) {
     throw new Error("Jev response is missing answers");
@@ -98,7 +104,7 @@ export class JevRouter<T extends RouterOutputShape> extends TopoDecisionRouter<T
       clearTimeout(timer);
     }
     if (!response.ok) {
-      throw new Error(`Jev request failed (${response.status}): ${(await response.text()).slice(0, 200)}`);
+      throw new Error(`Jev request failed (${response.status})`);
     }
 
     const answers = readAnswers(await response.json());
@@ -111,14 +117,14 @@ export class JevRouter<T extends RouterOutputShape> extends TopoDecisionRouter<T
       if (field.type === "boolean") {
         const noul = (answer as { noul?: unknown }).noul;
         if (typeof noul !== "number" || !Number.isFinite(noul)) {
-          throw new Error(`Jev answer for "${name}": expected numeric noul, got ${JSON.stringify(answer)}`);
+          throw new Error(`Jev answer for "${name}": expected numeric noul, got ${snippet(answer)}`);
         }
         out[name] = noul >= 0.5; // ponytail: 0.5 fixed threshold; move to config when calibration is needed
       } else {
         const choice = (answer as { choice?: unknown }).choice;
         const allowed = (field.enum ?? []).map(String);
         if (typeof choice !== "string" || !allowed.includes(choice)) {
-          throw new Error(`Jev answer for "${name}": expected one of ${allowed.join("/")}, got ${JSON.stringify(choice)}`);
+          throw new Error(`Jev answer for "${name}": expected one of ${allowed.join("/")}, got ${snippet(choice)}`);
         }
         out[name] = choice;
       }

@@ -51,8 +51,11 @@ function buildPrompt(graph: CompactedGraph, schema: DecisionSchema): string {
   ].join("\n\n");
 }
 
+/** Model-controlled text is echoed only as a bounded, single-line snippet. */
 function describe(value: unknown): string {
-  return value === undefined ? "undefined" : `${typeof value} ${JSON.stringify(value)}`;
+  if (value === undefined) return "undefined";
+  const text = JSON.stringify(value) ?? String(value);
+  return `${typeof value} ${text.replace(/[\r\n\t]+/g, " ").slice(0, 80)}`;
 }
 
 /** Reads and type-checks every schema field; throws naming the offending field. */
@@ -64,16 +67,14 @@ function validateShape<T extends RouterOutputShape>(value: unknown, schema: Deci
   const result: RouterOutputShape = {};
   for (const [name, field] of Object.entries(schema)) {
     const got = source[name];
-    if (typeof got !== field.type) {
+    if (typeof got !== field.type || (typeof got === "number" && !Number.isFinite(got))) {
       throw new Error(
         `OllamaRouter: field "${name}" expected ${field.type}, got ${describe(got)}`,
       );
     }
     if (field.enum !== undefined && !(field.enum as readonly unknown[]).includes(got)) {
       throw new Error(
-        `OllamaRouter: field "${name}" got ${JSON.stringify(got)}, expected one of ${field.enum
-          .map((v) => JSON.stringify(v))
-          .join(", ")}`,
+        `OllamaRouter: field "${name}" got ${describe(got)}, expected one of ${field.enum.join(", ")}`,
       );
     }
     result[name] = got as string | number | boolean;
