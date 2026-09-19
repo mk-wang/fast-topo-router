@@ -3,18 +3,18 @@ import { TopoDecisionRouter } from "../core/decision.js";
 import type { DecisionSchema, RouterOutputShape } from "../core/decision.js";
 
 export interface JevRouterConfig {
-  /** 默认读 process.env.JEV_KEY */
+  /** Defaults to process.env.JEV_KEY */
   apiKey?: string;
-  /** 默认 "jev-latest" */
+  /** Defaults to "jev-latest" */
   model?: string;
-  /** 默认 TypeSafe System One 端点 */
+  /** Defaults to TypeSafe System One endpoint */
   baseUrl?: string;
   timeoutMs?: number;
-  /** 默认全局 fetch；测试注入用 */
+  /** Global fetch by default; injected for testing */
   fetch?: typeof fetch;
 }
 
-// Jev 线路形状（子集，参考 fast-jev-compaction）
+// Jev wire shapes (subset; see fast-jev-compaction)
 interface NoulQuestion {
   type: "noul";
   instructions: string;
@@ -30,8 +30,8 @@ type JevQuestion = NoulQuestion | ChoiceQuestion;
 const SYSTEM_ONE_URL = "https://api.typesafe.ai/v1/systemone";
 const DEFAULT_TIMEOUT_MS = 10_000;
 
-// ponytail: 只支持 boolean→noul、string+enum→choice；number / 无枚举 string 在 Jev 的
-// 强类型问题模型里没有对应物，直接抛错。需要 number 时加 score 映射（criteria 等级数组）。
+// ponytail: support boolean->noul, string+enum->choice only; number / unconstrained string
+// have no equivalent in Jev's typed question model and throw directly.
 function toQuestions(schema: DecisionSchema): Record<string, JevQuestion> {
   const out: Record<string, JevQuestion> = {};
   for (const [name, field] of Object.entries(schema)) {
@@ -113,7 +113,7 @@ export class JevRouter<T extends RouterOutputShape> extends TopoDecisionRouter<T
         if (typeof noul !== "number" || !Number.isFinite(noul)) {
           throw new Error(`Jev answer for "${name}": expected numeric noul, got ${JSON.stringify(answer)}`);
         }
-        out[name] = noul >= 0.5; // ponytail: 0.5 固定阈值；需要校准时可把阈值放进 config
+        out[name] = noul >= 0.5; // ponytail: 0.5 fixed threshold; move to config when calibration is needed
       } else {
         const choice = (answer as { choice?: unknown }).choice;
         const allowed = (field.enum ?? []).map(String);

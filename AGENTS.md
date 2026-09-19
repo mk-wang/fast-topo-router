@@ -4,7 +4,7 @@
 
 `fast-topo-router` — a deterministic, type-safe context routing gateway for terminal AI agents (Claude Code, Omp, Codex). Two-phase pre-ingestion pipeline: topology-driven pruning of workspace entropy, then strongly-typed tactical routing via a fast decision model. Currently a scaffold: abstract framework only, no concrete compactor/router implementations yet.
 
-Design baseline lives in `documents/blueprint.md` (Chinese, canonical). All design docs go in `documents/`, not `docs/`.
+Design baseline lives in `documents/blueprint.md` (canonical). All design docs go in `documents/`, not `docs/`.
 
 ## Architecture & Data Flow
 
@@ -25,7 +25,7 @@ Both engines are abstract classes: consumers bring their own extractor (e.g. Tre
 - `src/core/` — abstract engine contracts (frozen boundary; concrete implementations live outside)
 - `src/compactors/` — `CodeCompactor`: Tree-sitter TS/TSX skeleton extractor
 - `src/routers/` — `OllamaRouter` (local Ollama structured output, zero-dep) and `JevRouter` (TypeSafe Jev API, Bearer via `JEV_KEY` env; boolean→noul, string+enum→choice)
-- `documents/` — design docs, Chinese, canonical source of truth for intent
+- `documents/` — design docs, canonical source of truth for intent
 
 ## Development Commands
 

@@ -1,13 +1,13 @@
 /**
- * 效果基准：fast-topo-router vs 朴素基线（Agent 直接全文读目标文件 + 一跳 import）。
- * 用法: bun bench/bench.ts [repoRoot] [file ...]
- * 默认对 ../fast-jev-compaction 的核心源文件跑。
+ * Performance benchmark: fast-topo-router vs naive baseline (agent reading full files + 1-hop imports).
+ * Usage: bun bench/bench.ts [repoRoot] [file ...]
+ * Defaults to core source files of ../fast-jev-compaction.
  *
- * 指标:
- *  1. token 节省 = 基线字符/4 vs verbatimPayload 字符/4（ponytail: chars/4 是估算，
- *     精确计数时换 tokenizer）
- *  2. 决策延迟 = JevRouter.route() 墙钟时间（真实 API，1 次调用）
- *  3. 裁剪延迟 = CodeCompactor.compact() 墙钟时间
+ * Metrics:
+ *  1. token savings = baseline chars/4 vs verbatimPayload chars/4 (ponytail: chars/4 is an estimate;
+ *     swap in a real tokenizer for exact counts)
+ *  2. decision latency = JevRouter.route() wall-clock time (real API, 1 call)
+ *  3. compaction latency = CodeCompactor.compact() wall-clock time
  */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -18,7 +18,7 @@ const targets = process.argv.slice(3).length
   ? process.argv.slice(3)
   : ["src/compact.ts", "src/client.ts", "src/request.ts"];
 
-// ponytail: 基线只追一跳 import，匹配"Agent 读完入口还会打开直接依赖"的典型行为
+// ponytail: baseline follows 1-hop imports only, matching typical agent behavior of inspecting direct deps
 const IMPORT_RE = /from\s+["'](\.[^"']+)["']/g;
 
 async function baselineBytes(absFiles: string[]): Promise<number> {
@@ -34,10 +34,10 @@ async function baselineBytes(absFiles: string[]): Promise<number> {
     try {
       text = await readFile(file, "utf8");
     } catch {
-      continue; // 解析不到的 import（如 .css、目录）跳过
+      continue; // skip unresolvable imports (e.g. .css, directories)
     }
     total += text.length;
-    if (!entries.has(file)) continue; // 只对入口文件追一跳
+    if (!entries.has(file)) continue; // follow 1-hop imports for entry files only
     for (const m of text.matchAll(IMPORT_RE)) {
       const resolved = path.resolve(path.dirname(file), m[1]!).replace(/\.js$/, ".ts");
       queue.push(resolved.endsWith(".ts") ? resolved : `${resolved}.ts`);
@@ -57,11 +57,11 @@ const naive = await baselineBytes(absTargets);
 const pruned = graph.verbatimPayload.length;
 
 const schema = {
-  is_critical_dependency: { type: "boolean" as const, description: "改动这些文件是否会引发上游模块崩溃？" },
+  is_critical_dependency: { type: "boolean" as const, description: "Will modifying these files crash upstream modules?" },
   recommended_test_action: {
     type: "string" as const,
     enum: ["Unit", "Integration", "None"],
-    description: "验证该改动最匹配的测试路由",
+    description: "Most appropriate test route for verifying this change",
   },
 };
 

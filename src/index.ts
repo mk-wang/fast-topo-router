@@ -25,7 +25,7 @@ export class FastTopoRouter<T extends RouterOutputShape> {
     private readonly router: TopoDecisionRouter<T>,
   ) {}
 
-  /** 框架统一入口：物理裁剪（等高线剪枝）→ 强类型业务分支路由 */
+  /** Framework ingress entry point: physical pruning (topology compaction) -> strongly-typed tactical routing */
   async processIngress(entities: string[], decisionSchema: DecisionSchema): Promise<IngressResult<T>> {
     const graph = await this.compactor.compact(entities);
     const decision = await this.router.route(graph, decisionSchema);

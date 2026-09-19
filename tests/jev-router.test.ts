@@ -10,7 +10,7 @@ const graph: CompactedGraph = {
 };
 
 const schema: DecisionSchema = {
-  is_critical_dependency: { type: "boolean", description: "改动该节点是否会引发上游模块崩溃？" },
+  is_critical_dependency: { type: "boolean", description: "Will modifying this node crash upstream modules?" },
   recommended_test_action: { type: "string", enum: ["Unit", "Integration", "None"] },
 };
 
