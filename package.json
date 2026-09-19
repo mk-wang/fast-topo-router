@@ -1,0 +1,38 @@
+{
+  "name": "fast-topo-router",
+  "version": "0.0.1",
+  "description": "Deterministic, type-safe context routing gateway for terminal AI agents: topology-driven pruning + strongly-typed tactical routing.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "bench": "bun bench/bench.ts"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^26.6.1",
+    "typescript": "^5.6.0",
+    "vitest": "^5.0.1"
+  },
+  "dependencies": {
+    "tree-sitter-wasms": "^0.1.13",
+    "web-tree-sitter": "0.25.10"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mk-wang/fast-topo-router.git"
+  },
+  "homepage": "https://github.com/mk-wang/fast-topo-router"
+}
